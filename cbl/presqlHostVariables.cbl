@@ -1,0 +1,294 @@
+*>===============================================================================
+identification division.
+*>===============================================================================
+program-id. presqlHostVariables.
+*>-------------------------------------------------------------------------------
+*> GnuCOBOL SQL pre-compiler
+*> Copyright (c) 2021 Paulo Andre Dias (pauloandredias@me.com)
+*>
+*> This program is part of the "presql" precompiler, and is responsible for the
+*> generation of a table with host variables used by the original program.
+*>
+*>  This program is free software; you can redistribute it and/or modify
+*>  it under the terms of the GNU General Public License as published by
+*>  the Free Software Foundation; either version 2, or (at your option)
+*>  any later version.
+*>  
+*>  This program is distributed in the hope that it will be useful,
+*>  but WITHOUT ANY WARRANTY; without even the implied warranty of
+*>  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+*>  GNU General Public License for more details.
+*>-------------------------------------------------------------------------------
+
+*>===============================================================================
+environment division.
+*>===============================================================================
+configuration section.
+repository.
+    function getWord
+    function getWordNumber
+    function all intrinsic.
+
+input-output section.
+file-control.
+    select inputSource assign to inputSourceFileName
+    organization is line sequential
+    file status is inputSourceFileStatus.
+
+    select hostVariables assign to hostVariablesFileName
+    organization is line sequential
+    file status is hostVariablesFileStatus.
+
+*>===============================================================================
+data division.
+*>===============================================================================
+file section.
+fd inputSource.
+01 inputSourceLine.
+    03  filler                  pic x(255).
+
+fd hostVariables.
+01 hostVariableRecord.
+    03 hostVariableType         pic x(002).
+    03 hostVariableLength       pic 9(006).
+    03 hostVariablePrecision    pic 9(002).
+    03 hostVariableName         pic x(255).
+
+*>------------------------------------------------------------------------------    
+working-storage section.
+*>------------------------------------------------------------------------------    
+01 hostVariablesFileControls.
+    03  hostVariablesFileStatus  pic x(002)  value spaces.  
+    
+01 flags.
+    03 errorFlag                pic 9(001)  value zeros.
+        88 itIsOkSoFar          value 0     false 1.
+        88 thereWasAnError      value 1     false 0.
+    03 sourceState              pic 9(001)  value zeros.
+        88 insideDeclareSection value 1     false 0.
+
+01 miscellaneous.
+    03 levelNumber              pic x(002)  value spaces.
+    03 pictureClause            pic x(007)  value spaces.
+    03 pictureValue             pic x(255)  value spaces.
+    03 usageClause              pic x(255)  value spaces.
+
+*>------------------------------------------------------------------------------    
+linkage section.
+*>------------------------------------------------------------------------------    
+01 sourceFileControls.
+    03  inputSourceFileName     pic x(255)  value spaces.
+    03  inputSourceFileStatus   pic x(002)  value spaces.
+        88 inputSourceEof       value "10"  false "00".
+        88 inputSourceNotFound  value "35"  false "00".
+
+01 runningOptions.
+    03 quoteCharacter           pic x(001)  value "'".
+    03 sourceFormat             pic 9(001)  value zeros.
+        88 sourceFormatIsFree   value 0     false 1.
+        88 sourceFormatIsFixed  value 1     false 0.
+    03 runningMode              pic 9(001)  value zeros.
+        88 runningModeIsQuiet   value 0     false 1.
+        88 runningModeIsVerbose value 1     false 0.
+
+01 hostVariablesResults.
+    03 hostVariablesFileName    pic x(255)  value spaces.
+    03 returnCode               pic 9(001)  value zeros.
+        88 everythingWasFine    value 0     false 1.
+        88 somethingWentWrong   value 1     false 0.
+
+*>===============================================================================
+procedure division using sourceFileControls, runningOptions, hostVariablesResults. 
+*>===============================================================================
+0-main.
+
+    perform 1-open-files
+    if itIsOkSoFar    
+        read inputSource next record at end set inputSourceEof to true end-read
+        perform 2-search-host-variables until inputSourceEof or thereWasAnError
+        perform 3-close-files
+    end-if      
+
+    if thereWasAnError
+        set somethingWentWrong to true
+    else
+        set everythingWasFine to true
+    end-if
+
+    goback.
+
+*>------------------------------------------------------------------------------    
+*> The input source programa is the one generated by the previous step
+*> (presqlExpand). The output file will be used later when the size and data
+*> type of each host variable will be necessary to compound the ODBC calls.
+*>------------------------------------------------------------------------------    
+1-open-files.
+
+    open input inputSource
+    if inputSourceNotFound
+        display MODULE-ID " (ERROR): Program " trim(inputSourceFileName) " not found" upon stderr
+        set thereWasAnError to true
+        exit paragraph
+    else    
+        if inputSourceFileStatus not = "00"
+            display MODULE-ID " (ERROR): Opening " trim(inputSourceFileName) " failed with file-status " inputSourceFileStatus upon stderr
+            set thereWasAnError to true
+            exit paragraph
+        else
+            if runningModeIsVerbose
+                display MODULE-ID " (info): Opening " trim(inputSourceFileName) 
+            end-if
+        end-if            
+    end-if
+
+    move substitute(inputSourceFileName, ".presql.step1", ".presql.hostv") to hostVariablesFileName
+
+    open output hostVariables
+    if hostVariablesFileStatus not = "00"
+        display MODULE-ID " (ERROR): Opening " trim(hostVariablesFileName) " failed with file-status " hostVariablesFileStatus upon stderr
+        set thereWasAnError to true
+        exit paragraph
+    else
+        if runningModeIsVerbose
+            display MODULE-ID " (info): Opening " trim(hostVariablesFileName)
+        end-if
+    end-if.
+
+*>------------------------------------------------------------------------------    
+*> The host variables were expanded by the previous programa (presqlExpand). 
+*> This previous program also tagged the begin and end declare section.
+*>------------------------------------------------------------------------------    
+2-search-host-variables.
+
+    if inputSourceLine = "*> #presqlBeginDeclareSection"
+        set insideDeclareSection to true
+        if runningModeIsVerbose
+            display "presqlHostVariables (info): Begin Declare Section was found"
+        end-if
+    else    
+        if inputSourceLine = "*> #presqlEndDeclareSection"
+            set insideDeclareSection to false
+            if runningModeIsVerbose
+                display "presqlHostVariables (info): End Declare Section was found"
+            end-if
+        else
+            if insideDeclareSection
+                if inputSourceLine not = spaces
+                    if (sourceFormatIsFixed and inputSourceLine(7:1) not = "*") or
+                       (sourceFormatIsFree and trim(inputSourceLine)(1:2) not = "*>")
+                        unstring trim(inputSourceLine)
+                            delimited by all spaces
+                            into levelNumber
+                                 hostVariableName
+                                 pictureClause
+                                 pictureValue
+                                 usageClause
+                        if levelNumber is numeric
+                            move lower-case(substitute(pictureValue, ".", " ")) to pictureValue
+                            move lower-case(substitute(usageClause, ".", " ")) to usageClause
+                            perform 21-calculate-type-length-and-precision
+                            if runningModeIsVerbose
+                                display "presqlHostVariables (info): level=" levelNumber 
+                                                                   " name=" trim(hostVariableName) 
+                                                                   " picture=" trim(pictureValue) 
+                                                                   " usage=" trim(usageClause)
+                                                                   " type=" trim(hostVariableType)
+                                                                   " length=" trim(hostVariableLength)
+                                                                   " precision=" trim(hostVariablePrecision)
+                            end-if
+                            if itIsOkSoFar
+                                write hostVariableRecord
+                            else
+                                exit paragraph
+                            end-if
+                        end-if
+                    end-if
+                end-if  
+            end-if
+        end-if
+    end-if
+                
+    read inputSource next record at end set inputSourceEof to true end-read.
+
+*>------------------------------------------------------------------------------    
+*> Identify data type, length and precision based on the picture of the host
+*> variable. This information is necessary to call UnixODBC subprograms.
+*>
+*> TO-DO: At this time only picture with parentheses will be recognized and 
+*> the usage clause may not contain words other than "comp-3" and "comp-5".
+*>
+*> For example:
+*>      pic x(30) is acceptable
+*>      pic s9(009)v9(002) is acceptable
+*>      pic s9(8) comp-5 is acceptable
+*>      pic s9999 comp-5 is NOT acceptable
+*>      pic xxx is NOT acceptable
+*>      pic s9(8) usage is comp-5 is NOT acceptable
+*>------------------------------------------------------------------------------    
+21-calculate-type-length-and-precision.
+
+    unstring pictureValue
+        delimited by ")v9(" or "(" or ")" 
+            into hostVariableType
+                 hostVariableLength
+                 hostVariablePrecision.
+
+    if hostVariableType = "x"
+        if hostVariableLength > zeros
+            move "X" to hostVariableType
+        else
+            display MODULE-ID " (ERRO): Host Variable " trim(hostVariableName) " is alphanumeric but has an invalid data length" upon stderr
+            set thereWasAnError to true
+        end-if
+        exit paragraph
+    end-if
+
+    if hostVariableType = "s9"
+        if usageClause = "comp-5"
+            move "I" to hostVariableType
+            if hostVariableLength = 8
+                move 4 to hostVariableLength
+            else
+                if hostVariableLength = 4
+                    move 2 to hostVariableLength
+                else
+                    display MODULE-ID " (ERRO): Host Variable " trim(hostVariableName) " is comp-5 but has an invalid data length" upon stderr
+                    set thereWasAnError to true
+                end-if
+            end-if
+        else
+            if usageClause = "comp-3"
+                move "3" to hostVariableType
+                if hostVariableLength > zeros and hostVariablePrecision > zeros
+                    compute hostVariableLength rounded = (hostVariableLength + hostVariablePrecision) / 2
+                else    
+                    display MODULE-ID " (ERRO): Host Variable " trim(hostVariableName) " is comp-3 but has an invalid data length and/or data precision" upon stderr
+                    set thereWasAnError to true
+                end-if
+            else
+                display MODULE-ID " (ERRO): Host Variable " trim(hostVariableName) " has an invalid usage clause" upon stderr
+                set thereWasAnError to true
+            end-if
+       end-if
+       exit paragraph
+    end-if
+
+    display MODULE-ID " (ERRO): Host Variable " trim(hostVariableName) " has an invalid picture clause" upon stderr
+    set thereWasAnError to true.
+
+*>------------------------------------------------------------------------------    
+*> Close input and output program
+*>------------------------------------------------------------------------------    
+3-close-files.
+
+    close inputSource 
+    if runningModeIsVerbose
+        display MODULE-ID " (info): Closing " trim(inputSourceFileName)
+    end-if
+
+    close hostVariables
+    if runningModeIsVerbose
+        display MODULE-ID " (info): Closing " trim(hostVariablesFileName)
+    end-if.
+            
+   
