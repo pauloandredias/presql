@@ -69,19 +69,26 @@ working-storage section.
     03 errorFlag                pic 9(001)  value zeros.
         88 itIsOkSoFar          value 0     false 1.
         88 thereWasAnError      value 1     false 0.
-
+        
 01 subprograms.
-    03 presqlExpand             pic x(030)  value "presqlExpand".
+    03 presqlIncludes           pic x(030)  value "presqlIncludes".
     03 presqlHostVariables      pic x(030)  value "presqlHostVariables".
+    03 presqlStatements         pic x(030)  value "presqlStatements".
 
-01 expandResults.
-    03 expandedSourceFileName   pic x(255)  value spaces.
+01 includeResults.
+    03 outputSourceFileName     pic x(255)  value spaces.
     03 returnCode               pic 9(001)  value zeros.
         88 everythingWasFine    value 0     false 1.
         88 somethingWentWrong   value 1     false 0.
 
 01 hostVariablesResults.
-    03 hostVariablesFileName    pic x(255)  value spaces.
+    03 outputSourceFileName     pic x(255)  value spaces.
+    03 returnCode               pic 9(001)  value zeros.
+        88 everythingWasFine    value 0     false 1.
+        88 somethingWentWrong   value 1     false 0.
+
+01 statementsResults.
+    03 outputSourceFileName     pic x(255)  value spaces.
     03 returnCode               pic 9(001)  value zeros.
         88 everythingWasFine    value 0     false 1.
         88 somethingWentWrong   value 1     false 0.
@@ -125,7 +132,7 @@ procedure division.
     else
         if runningModeIsVerbose
             display MODULE-ID " (info): Input program.........: " trim(inputSourceFileName)
-            display MODULE-ID " (info): Output program........: " trim(outputSourceFileName)
+            display MODULE-ID " (info): Output program........: " trim(outputSourceFileName of sourceFileControls)
             display MODULE-ID " (info): Source format.........: " sourceFormat
             display MODULE-ID " (info): Quote Character.......: " quoteCharacter
             display MODULE-ID " (info): Copybook Directories..:" 
@@ -160,7 +167,7 @@ procedure division.
                 set argumentIs-s to false
             else    
                 if argumentIs-o
-                    move argumentText to outputSourceFileName
+                    move argumentText to outputSourceFileName of sourceFileControls
                     set argumentIs-o to false
                 else    
                     if argumentIs-i
@@ -187,20 +194,30 @@ procedure division.
 *>------------------------------------------------------------------------------    
 2-run-the-job.
 
-    *> Expand the includes inside declare section
-    call presqlExpand using sourceFileControls, runningOptions, copybookControls, expandResults
-    if somethingWentWrong in expandResults
+    *> Expand the includesinside declare section
+    call presqlIncludes using sourceFileControls, runningOptions, copybookControls, includeResults
+    if somethingWentWrong in includeResults
         display MODULE-ID " (ERROR): Something went wrong when trying to expand includes" upon stderr
         set thereWasAnError to true
         exit paragraph
     else
 
-    move expandedSourceFileName to inputSourceFileName
+    move outputSourceFileName of includeResults to inputSourceFileName
     
     *> Generates a table with the host variables
     call presqlHostVariables using sourceFileControls, runningOptions, hostVariablesResults
     if somethingWentWrong in hostVariablesResults
         display MODULE-ID " (ERROR): Something went wrong when trying to extract host variables" upon stderr
+        set thereWasAnError to true
+        exit paragraph
+    end-if.
+
+    move outputSourceFileName of includeResults to inputSourceFileName
+
+    *> Extracts the exec sql statements from procedure division
+    call presqlStatements using sourceFileControls, runningOptions, statementsResults
+    if somethingWentWrong in hostVariablesResults
+        display MODULE-ID " (ERROR): Something went wrong when trying to extract exec sql statements" upon stderr
         set thereWasAnError to true
         exit paragraph
     end-if.

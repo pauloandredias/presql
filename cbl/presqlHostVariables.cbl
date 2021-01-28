@@ -35,7 +35,7 @@ file-control.
     organization is line sequential
     file status is inputSourceFileStatus.
 
-    select hostVariables assign to hostVariablesFileName
+    select hostVariables assign to outputSourceFileName 
     organization is line sequential
     file status is hostVariablesFileStatus.
 
@@ -92,7 +92,7 @@ linkage section.
         88 runningModeIsVerbose value 1     false 0.
 
 01 hostVariablesResults.
-    03 hostVariablesFileName    pic x(255)  value spaces.
+    03 outputSourceFileName     pic x(255)  value spaces.
     03 returnCode               pic 9(001)  value zeros.
         88 everythingWasFine    value 0     false 1.
         88 somethingWentWrong   value 1     false 0.
@@ -141,16 +141,16 @@ procedure division using sourceFileControls, runningOptions, hostVariablesResult
         end-if            
     end-if
 
-    move substitute(inputSourceFileName, ".presql.step1", ".presql.hostv") to hostVariablesFileName
+    move substitute(inputSourceFileName, ".presql.step1", ".presql.hostv") to outputSourceFileName 
 
     open output hostVariables
     if hostVariablesFileStatus not = "00"
-        display MODULE-ID " (ERROR): Opening " trim(hostVariablesFileName) " failed with file-status " hostVariablesFileStatus upon stderr
+        display MODULE-ID " (ERROR): Opening " trim(outputSourceFileName ) " failed with file-status " hostVariablesFileStatus upon stderr
         set thereWasAnError to true
         exit paragraph
     else
         if runningModeIsVerbose
-            display MODULE-ID " (info): Opening " trim(hostVariablesFileName)
+            display MODULE-ID " (info): Opening " trim(outputSourceFileName )
         end-if
     end-if.
 
@@ -288,7 +288,7 @@ procedure division using sourceFileControls, runningOptions, hostVariablesResult
 
     close hostVariables
     if runningModeIsVerbose
-        display MODULE-ID " (info): Closing " trim(hostVariablesFileName)
+        display MODULE-ID " (info): Closing " trim(outputSourceFileName )
     end-if.
             
    

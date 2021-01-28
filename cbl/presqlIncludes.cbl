@@ -1,13 +1,14 @@
 *>===============================================================================
 identification division.
 *>===============================================================================
-program-id. presqlExtract.
+program-id. presqlIncludes.
 *>-------------------------------------------------------------------------------
 *> GnuCOBOL SQL pre-compiler
 *> Copyright (c) 2021 Paulo Andre Dias (pauloandredias@me.com)
 *>
-*> This program is part of the presql pre-compiler and is responsible for
-*> extracting all sql statements of the procedure division. 
+*> This program is part of the "presql" pre-compiler, and is responsible for the
+*> expansion of all copybooks mentioned in include statements inside the declare
+*> section.
 *>
 *>  This program is free software; you can redistribute it and/or modify
 *>  it under the terms of the GNU General Public License as published by
@@ -39,9 +40,9 @@ file-control.
     organization is line sequential
     file status is copybookSourceFileStatus.
 
-    select expandedSource assign to expandedSourceFileName
+    select outputSource assign to outputSourceFileName  
     organization is line sequential
-    file status is expandedSourceFileStatus.
+    file status is outputSourceFileStatus.
 
 *>===============================================================================
 data division.
@@ -55,15 +56,15 @@ fd copybookSource.
 01 copybookSourceLine.
     03 filler                   pic x(255).
 
-fd expandedSource.
-01 expandedSourceLine.
+fd outputSource.
+01 outputSourceLine.
     03 filler                   pic x(255).
 
 *>------------------------------------------------------------------------------    
 working-storage section.
 *>------------------------------------------------------------------------------    
 01 fileControlsThatAreNotInLinkage.
-    03 expandedSourceFileStatus pic x(002)  value spaces.  
+    03 outputSourceFileStatus pic x(002)  value spaces.  
     03 copybookSourceFileName   pic x(255)  value spaces.  
     03 copybookSourceFileStatus pic x(002)  value spaces.
         88 copybookSourceEof    value "10".
@@ -118,14 +119,14 @@ linkage section.
     03 copybookDirMax           pic 9(002)  comp-5 value 20.
     03 copybookDirName          pic x(255)  occurs 20.
 
-01 expandedResults.
-    03 expandedSourceFileName   pic x(255)  value spaces.
+01 includeResults.
+    03 outputSourceFileName     pic x(255)  value spaces.
     03 returnCode               pic 9(001)  value zeros.
         88 everythingWasFine    value 0     false 1.
         88 somethingWentWrong   value 1     false 0.
 
 *>==================================================================================================
-procedure division using sourceFileControls, runningOptions, copybookControls, expandedResults. 
+procedure division using sourceFileControls, runningOptions, copybookControls, includeResults. 
 *>==================================================================================================
 0-main.
 
@@ -166,16 +167,16 @@ procedure division using sourceFileControls, runningOptions, copybookControls, e
         end-if            
     end-if
 
-    string trim(inputSourceFileName) ".expandedSource" into expandedSourceFileName
+    string trim(inputSourceFileName) ".presql.step1" into outputSourceFileName  
 
-    open output expandedSource
-    if expandedSourceFileStatus not = "00"
-        display MODULE-ID " (ERROR): Opening " trim(expandedSourceFileName) " failed with file-status " expandedSourceFileStatus upon stderr
+    open output outputSource
+    if outputSourceFileStatus not = "00"
+        display MODULE-ID " (ERROR): Opening " trim(outputSourceFileName  ) " failed with file-status " outputSourceFileStatus upon stderr
         set thereWasAnError to true
         exit paragraph
     else
         if runningModeIsVerbose
-            display MODULE-ID " (info): Opening " trim(expandedSourceFileName)
+            display MODULE-ID " (info): Opening " trim(outputSourceFileName  )
         end-if
     end-if.
 
@@ -206,7 +207,7 @@ procedure division using sourceFileControls, runningOptions, copybookControls, e
                     end-if
                     set insideDeclare to true
                     perform 21-toggle-to-comment
-                    move "#presqlBeginDeclareSecion" to expandedSourceLine
+                    move "#presqlBeginDeclareSection" to outputSourceLine
                     perform 23-insert-tag-line
                 else
                     if getWordNumber(inputSourceLine, "include") > zeros
@@ -214,7 +215,7 @@ procedure division using sourceFileControls, runningOptions, copybookControls, e
                             display MODULE-ID " (info): An include was found"
                         end-if
                         perform 21-toggle-to-comment
-                        move "#presqlInclude" to expandedSourceLine
+                        move "#presqlIncludes" to outputSourceLine
                         perform 23-insert-tag-line                        
                         perform 22-look-for-copybook
                     else
@@ -225,7 +226,7 @@ procedure division using sourceFileControls, runningOptions, copybookControls, e
                                 display MODULE-ID " (info): End Declare Section was found"
                             end-if
                             perform 21-toggle-to-comment
-                            move "#presqlEndDeclareSection" to expandedSourceLine
+                            move "#presqlEndDeclareSection" to outputSourceLine
                             perform 23-insert-tag-line  
                             set insideDeclare to false                                                  
                         end-if  
@@ -243,13 +244,13 @@ procedure division using sourceFileControls, runningOptions, copybookControls, e
                     end-if
                 end-if
             else    
-                write expandedSourceLine from inputSourceLine
+                write outputSourceLine from inputSourceLine
             end-if
         else
-            write expandedSourceLine from inputSourceLine
+            write outputSourceLine from inputSourceLine
         end-if
     else
-        write expandedSourceLine from inputSourceLine
+        write outputSourceLine from inputSourceLine
     end-if
         
     read inputSource next record at end set inputSourceEof to true end-read
@@ -264,11 +265,11 @@ procedure division using sourceFileControls, runningOptions, copybookControls, e
 
     if not toggledToComment     
         if sourceFormatIsFixed
-            move concatenate("      *", inputSourceLine(8:)) to expandedSourceLine
+            move concatenate("      *", inputSourceLine(8:)) to outputSourceLine
         else
-            move concatenate("*> ", inputSourceLine) to expandedSourceLine
+            move concatenate("*> ", inputSourceLine) to outputSourceLine
         end-if
-        write expandedSourceLine
+        write outputSourceLine
         set toggledToComment to true
     end-if.
 
@@ -332,7 +333,7 @@ procedure division using sourceFileControls, runningOptions, copybookControls, e
     if copybookSourceFileStatus = "00"
         read copybookSource next record at end set copybookSourceEof to true end-read
         perform until copybookSourceEof
-            write expandedSourceLine from copybookSourceLine
+            write outputSourceLine from copybookSourceLine
             read copybookSource next record at end set copybookSourceEof to true end-read
         end-perform
         close copybookSource
@@ -348,12 +349,12 @@ procedure division using sourceFileControls, runningOptions, copybookControls, e
 23-insert-tag-line.
 
     if sourceFormatIsFixed
-        move concatenate("      *", expandedSourceLine) to expandedSourceLine
+        move concatenate("      *", outputSourceLine) to outputSourceLine
     else
-        move concatenate("*> ", expandedSourceLine) to expandedSourceLine
+        move concatenate("*> ", outputSourceLine) to outputSourceLine
     end-if
 
-    write expandedSourceLine.
+    write outputSourceLine.
 
 *>------------------------------------------------------------------------------    
 *> Close input and output program
@@ -365,9 +366,9 @@ procedure division using sourceFileControls, runningOptions, copybookControls, e
         display MODULE-ID " (info): Closing " trim(inputSourceFileName)
     end-if
 
-    close expandedSource
+    close outputSource
     if runningModeIsVerbose
-        display MODULE-ID " (info): Closing " trim(expandedSourceFileName)
+        display MODULE-ID " (info): Closing " trim(outputSourceFileName  )
     end-if.
             
    
